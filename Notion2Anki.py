@@ -157,6 +157,7 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
 
         # Handle images
         #for img in inner_soup.find_all('img'):     # Use this if image names by date
+        img_counter = 1
         for soup in [front_soup, back_soup]:
             for idx, img in enumerate(soup.find_all('img'), start=1):
                 src = img.get('src')
@@ -166,14 +167,14 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
                 #new_name = f"img_{folder_name}_{date_str}_{img_counter:03}{ext}" # Use this if image names by date
                 decoded_src = urllib.parse.unquote(os.path.basename(src))
                 ext = os.path.splitext(decoded_src)[1]  # e.g. ".png"
-                new_name = f"img_{slug}_{idx}{ext}"
+                new_name = f"img_{slug}_{img_counter}{ext}"
                 src_path = os.path.join(media_src_folder, decoded_src)
                 dest_path = os.path.join(media_output_folder, new_name)
                 if os.path.exists(src_path):
                     shutil.copy2(src_path, dest_path)
                     print(f"Copied image: {new_name}")
                     img['src'] = new_name   # Update src to just the file name (Anki expects this)
-                    #img_counter += 1
+                    img_counter += 1
                     if new_name not in media_files:
                         media_files.append(new_name)
                 else:
