@@ -100,6 +100,19 @@ def clean_html_content(soup_fragment):
         tag.attrs = {k: v for k, v in tag.attrs.items() if k == 'src'}
     return soup_fragment.decode_contents().strip()
 
+def merge_consecutive_ol(soup):
+    """Merge consecutive <ol> tags into a single <ol> with multiple <li> children."""
+    for ol in soup.find_all("ol"):
+        next_sibling = ol.find_next_sibling()
+        while next_sibling and next_sibling.name == "ol":
+            # Move all <li> from the sibling into the current <ol>
+            for li in next_sibling.find_all("li"):
+                ol.append(li)
+            to_extract = next_sibling
+            next_sibling = next_sibling.find_next_sibling()
+            to_extract.extract()  # remove the now-empty sibling
+    return soup
+
 def extract_cards_from_html(html_path, media_src_folder, media_output_folder, csv_output_path, json_output_path):
     with open(html_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f, 'html.parser')
@@ -181,6 +194,7 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
                     print(f"Missing image file: {decoded_src}")
 
         front_html = f"<strong>{question}</strong><br>" + clean_html_content(front_soup)
+        back_soup = merge_consecutive_ol(back_soup)
         back_html = clean_html_content(back_soup)
         cards.append((front_html, back_html, current_deck))
         #cards.append((front_html, back_html))
