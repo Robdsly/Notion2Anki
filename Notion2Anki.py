@@ -24,7 +24,8 @@ also be updated in Anki. Otherwise, a new deck will be created. If you want a ne
 - Execute this script, and select the folder (enter it). If you did not properly enter, script will say it did not find
     HTML file. A csv file and a Json file containing the card content as well as a folder "Anki_media" will be created
 - If there are images in the cards:
-    - Navigate to your Anki media folder, in my case: /home/<user name>/.local/share/Anki2/<mail>/collection.media
+    - Navigate to your Anki media folder, in my case (Arch): /home/<user name>/.local/share/Anki2/<mail>/collection.media
+      For Ubuntu, it was: /home/<user name>/snap/anki-desktop/common/<anki user name>/collection.media
     - Paste the images from the "Anki_media" folder to the "collection.media" folder
 - Import without subdecks: Click "Import file" from Anki Desktop (Anki Web does not work!) and choose the CSV file
 - Import with subdecks:
@@ -51,8 +52,13 @@ import json
 import uuid
 from collections import defaultdict
 
-deck_name = "Data_Science"
-MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc4567"     # Manual UUID definition
+deck_name = "Semester 1: Data Science Master"
+
+# UUID
+# Data_Science: "cf724d70-6d64-4414-9e08-d0e424fc4567"
+# Semester 1: "cf724d70-6d64-4414-9e08-d0e424fc4568"
+MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc4568"     # Manual UUID definition
+
 #MAIN_DECK_UUID = str(uuid.uuid4())      # Randomly generated UUID for the main deck
 
 def build_decks_hierarchy(deck_names, deck_config_uuid, notes_by_deck, root_name=deck_name):
@@ -113,13 +119,13 @@ def merge_consecutive_ol(soup):
             to_extract.extract()  # remove the now-empty sibling
     return soup
 
+"""
 def extract_cards_from_html(html_path, media_src_folder, media_output_folder, csv_output_path, json_output_path):
     with open(html_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f, 'html.parser')
 
     #date_str = datetime.now().strftime("%Y-%m-%d")
     #folder_name = os.path.basename(os.path.dirname(html_path)).replace(" ", "_")
-    #img_counter = 1
 
     cards = []
     media_files = []
@@ -135,10 +141,20 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
             continue
 
         raw_question = summary.get_text(strip=True)
+
+        header_stack = [deck_name]  # start with root deck
+
         if raw_question.startswith("H:"):
-            current_deck = f"{deck_name}::{raw_question[2:].strip()}"#f"{deck_name}::{raw_question[2:].strip()}"
-            #raw_question.extract()  # Remove from HTML so it doesn't show in answer
+            header_name = raw_question[2:].strip()
+            header_stack = header_stack[:len(header_stack)]  # truncate if needed
+            header_stack.append(header_name)
+            current_deck = "::".join(header_stack)
             continue
+
+        #if raw_question.startswith("H:"):
+        #    current_deck = f"{deck_name}::{raw_question[2:].strip()}"#f"{deck_name}::{raw_question[2:].strip()}"
+        #    #raw_question.extract()  # Remove from HTML so it doesn't show in answer
+        #    continue
         if not raw_question.startswith("Q:"):
             continue  # Skip if it doesn't start with "Q:"
         question = raw_question[2:].strip()  # Remove the "Q:"
@@ -342,6 +358,301 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
     print(json.dumps(decks_hierarchy, indent=2))
     crowdanki_export["children"] = decks_hierarchy["children"]
     #crowdanki_export.pop("children", None)  # remove the empty key
+
+    with open(json_output_path, 'w', encoding='utf-8') as f:
+        json.dump(crowdanki_export, f, indent=2, ensure_ascii=False)
+
+    print(f"Exported single CrowdAnki JSON: {json_output_path}")
+"""
+
+def extract_cards_from_html(html_path, media_src_folder, media_output_folder, csv_output_path, json_output_path):
+    with open(html_path, 'r', encoding='utf-8') as f:
+        soup = BeautifulSoup(f, 'html.parser')
+
+    cards = []
+    media_files = []
+
+    # Default deck root
+    default_deck_path = deck_name
+
+    # helper: clean 'H:' and split '->' chains into tokens
+    def parse_header_chain(raw_text):
+        # Remove leading/trailing whitespace
+        text = raw_text.strip()
+        # Remove any leading "H:" if present
+        if text.startswith("H:"):
+            text = text[2:].strip()
+        # Split explicit chain notation "A -> B -> C"
+        parts = [p.strip() for p in text.split("->")]
+        # For safety remove any leading "H:" from parts too
+        cleaned = [re.sub(r'^\s*H:\s*', '', p).strip() for p in parts if p and p.strip()]
+        return cleaned
+
+    # Utility: given a <details> element, build deck parts from its ancestor H: summaries
+    def deck_parts_from_ancestors(details_elem):
+        ancestors = list(reversed(details_elem.find_parents('details')))
+        parts = []
+        for anc in ancestors:
+            s = anc.find('summary')
+            if not s:
+                continue
+            t = s.get_text(strip=True)
+            if t.startswith("H:"):
+                parts.extend(parse_header_chain(t))
+        return parts
+
+    details_blocks = soup.find_all('details')
+    print(f"Found {len(details_blocks)} toggle blocks.")
+
+    # Keep a fallback 'last_seen_header_chain' for cases where headers are not nested in the HTML.
+    last_seen_header_chain = []
+
+    for details in details_blocks:
+        summary = details.find('summary')
+        if not summary:
+            continue
+
+        raw_summary = summary.get_text(strip=True)
+
+        # If header (H:), update last_seen_header_chain and skip (headers are not cards)
+        if raw_summary.startswith("H:"):
+            # parse chain - supports "H: A -> H: B" or single "H: A"
+            chain = parse_header_chain(raw_summary)
+            # If the header explicitly contains a chain, use it as absolute path
+            if len(chain) > 1:
+                last_seen_header_chain = chain
+            else:
+                # If it's a single header token, update stack:
+                # If previous header chain is empty -> set as top-level
+                # If previous element was also an H: (i.e. consecutive H's), treat as child of previous header chain
+                # Otherwise set as top-level (a new branch)
+                # We determine "previous element was H" by looking at the previous sibling that is a <details>.
+                prev = details.find_previous_sibling()
+                prev_was_H = False
+                if prev and prev.name == 'details':
+                    prev_summary = prev.find('summary')
+                    if prev_summary and prev_summary.get_text(strip=True).startswith("H:"):
+                        prev_was_H = True
+
+                if prev_was_H and last_seen_header_chain:
+                    # append as deeper level (child)
+                    last_seen_header_chain = last_seen_header_chain + chain
+                else:
+                    # start a new header branch
+                    last_seen_header_chain = chain
+            # header processed; we don't add a card for it
+            continue
+
+        # Only proceed if it's a question
+        if not raw_summary.startswith("Q:"):
+            continue
+
+        # Extract the question text
+        question = raw_summary[2:].strip()  # remove "Q:"
+
+        # Remove the <summary> node so the rest is the answer content
+        summary.extract()
+
+        # Extract inner HTML content from <details>
+        inner_html = ''.join(str(tag) for tag in details.contents)
+        slug = slugify(question)
+
+        # Split at "Q:" and "A:" inside the full HTML if present
+        q_start = inner_html.find("Q:")
+        a_start = inner_html.find("A:")
+
+        if q_start != -1 and a_start != -1 and a_start > q_start:
+            front_raw = inner_html[(q_start + 2):a_start].strip()
+            back_raw = inner_html[(a_start + 2):].strip()
+        else:
+            # Fallback: everything is the back (answer)
+            front_raw = ""
+            back_raw = inner_html.strip()
+
+        front_soup = BeautifulSoup(front_raw, 'html.parser')
+        back_soup = BeautifulSoup(back_raw, 'html.parser')
+
+        # Handle images (both front and back)
+        img_counter = 1
+        for soup_side in (front_soup, back_soup):
+            for idx, img in enumerate(soup_side.find_all('img'), start=1):
+                src = img.get('src')
+                if not src:
+                    continue
+                decoded_src = urllib.parse.unquote(os.path.basename(src))
+                ext = os.path.splitext(decoded_src)[1] or ".png"
+                new_name = f"img_{slug}_{img_counter}{ext}"
+                src_path = os.path.join(media_src_folder, decoded_src) if media_src_folder else None
+                dest_path = os.path.join(media_output_folder, new_name)
+                if src_path and os.path.exists(src_path):
+                    shutil.copy2(src_path, dest_path)
+                    print(f"Copied image: {new_name}")
+                    img['src'] = new_name
+                    img_counter += 1
+                    if new_name not in media_files:
+                        media_files.append(new_name)
+                else:
+                    print(f"Missing image file: {decoded_src} (expected in {media_src_folder})")
+
+        front_html = f"<strong>{question}</strong><br>" + clean_html_content(front_soup)
+        back_soup = merge_consecutive_ol(back_soup)
+        back_html = clean_html_content(back_soup)
+
+        # === Determine deck path for this card ===
+        # 1) Prefer ancestor-based headers (if the Q is nested under details that have H: summaries)
+        ancestor_parts = deck_parts_from_ancestors(details)
+        if ancestor_parts:
+            deck_full = "::".join([default_deck_path] + ancestor_parts)
+        else:
+            # 2) If no ancestor header, but there was a recent header in the document order, use that
+            if last_seen_header_chain:
+                deck_full = "::".join([default_deck_path] + last_seen_header_chain)
+            else:
+                # 3) fallback
+                deck_full = f"{default_deck_path}::Default"
+
+        cards.append((front_html, back_html, deck_full))
+
+    # Write CSV
+    with open(csv_output_path, 'w', newline='', encoding='utf-8') as f:
+        writer = csv.writer(f)
+        writer.writerow(['Front', 'Back', 'Deck'])
+        for front, back, deck in cards:
+            writer.writerow([front, back, deck])
+
+    print(f"Saved {len(cards)} cards to {csv_output_path}")
+    print(f"Images saved to {media_output_folder}")
+
+    # --- CrowdAnki JSON creation (unchanged, but now with corrected deck names) ---
+    note_model_uuid = str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "note_model_basic_plus"))
+    deck_config_uuid = str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "deck_config"))
+
+    # (same crowdanki_export dict construction as before...)
+    # ... (I omit unchanged JSON-building code for brevity in this snippet)
+    # Recreate notes_by_deck using the new cards list:
+    notes_by_deck = defaultdict(list)
+    for front, back, deck in cards:
+        note = {
+            "note_model_uuid": note_model_uuid,
+            "fields": [front, back],
+            "tags": []
+        }
+        notes_by_deck[deck].append(note)
+
+    all_deck_names = set(deck for _, _, deck in cards)
+    decks_hierarchy = build_decks_hierarchy(all_deck_names, deck_config_uuid, notes_by_deck)
+
+    crowdanki_export = {
+        "crowdanki_uuid": MAIN_DECK_UUID,
+        "name": deck_name,
+        "deck_config_uuid": deck_config_uuid,
+        "deck_configurations": [
+            {
+                "crowdanki_uuid": deck_config_uuid,
+                "name": "Default",
+                "autoplay": True,
+                "dyn": False,
+                "lapse": {
+                    "delays": [10],
+                    "leechAction": 0,
+                    "leechFails": 8,
+                    "minInt": 1,
+                    "mult": 0
+                },
+                "maxTaken": 60,
+                "new": {
+                    "bury": True,
+                    "delays": [1, 10],
+                    "initialFactor": 2500,
+                    "ints": [1, 4, 7],
+                    "order": 1,
+                    "perDay": 20,
+                    "separate": True
+                },
+                "replayq": True,
+                "rev": {
+                    "bury": True,
+                    "ease4": 1.3,
+                    "fuzz": 0.05,
+                    "ivlFct": 1,
+                    "maxIvl": 36500,
+                    "minSpace": 1,
+                    "perDay": 200
+                },
+                "timer": 0,
+                "mod": 0,  # Unix timestamp (you can leave it as 0 or import `time` and use `int(time.time())`)
+            }
+        ],
+        "media_files": media_files,
+        "notes": [],
+        "children": decks_hierarchy["children"],
+        "note_models": [
+            {
+                "__type__": "NoteModel",
+                "crowdanki_uuid": note_model_uuid,
+                "name": "Basic+",
+                "type": 0,
+                "mod": 0,
+                "sortf": 0,
+                "latexPre": "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n",
+                "latexPost": "\\end{document}",
+                "css": ".card {\n font-family: arial;\n font-size: 20px;\n text-align: center;\n color: black;\n background-color: white;\n}\n",
+                "flds": [
+                    {
+                        "name": "Front",
+                        "ord": 0,
+                        "font": "Arial",
+                        "size": 20,
+                        "rtl": False,
+                        "sticky": False,
+                        "media": [],
+                        "description": "",
+                        "collapsed": False,
+                        "excludeFromSearch": False,
+                        "plainText": False,
+                        "preventDeletion": False,
+                        "tag": None,
+                        "id": None
+                    },
+                    {
+                        "name": "Back",
+                        "ord": 1,
+                        "font": "Arial",
+                        "size": 20,
+                        "rtl": False,
+                        "sticky": False,
+                        "media": [],
+                        "description": "",
+                        "collapsed": False,
+                        "excludeFromSearch": False,
+                        "plainText": False,
+                        "preventDeletion": False,
+                        "tag": None,
+                        "id": None
+                    }
+                ],
+                "tmpls": [
+                    {
+                        "name": "Card 1",
+                        "ord": 0,
+                        "qfmt": "{{Front}}",
+                        "afmt": "{{FrontSide}}<hr id=answer>{{Back}}",
+                        "bqfmt": "",
+                        "bafmt": "",
+                        "did": None,
+                        "sticky": False,
+                        "id": None
+                    }
+                ],
+                "req": [
+                    [0, "any", [0]]
+                ],
+                "tags": [],
+                "vers": [],
+                "latexsvg": False
+            }
+        ]
+    }
 
     with open(json_output_path, 'w', encoding='utf-8') as f:
         json.dump(crowdanki_export, f, indent=2, ensure_ascii=False)
