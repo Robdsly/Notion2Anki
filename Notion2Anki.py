@@ -36,6 +36,18 @@ also be updated in Anki. Otherwise, a new deck will be created. If you want a ne
     same, Anki will update the card.
 That's all!
 
+Troubleshooting:
+- If you see your images on Anki desktop but not on your phone or AnkiWeb, and everything else is correct, then:
+    - Open Anki on your phone
+    - THree dots -> Check -> Check media
+    - If it says that there are files missing, continue with the following (if not it's a different issue)
+    - On your computer, go to the folder where your Anki media is stored (e.g. /home/<user name>/.local/share/Anki2/<mail>/collection.media)
+    or via Tools -> Check Media -> View Files.
+    - Close Anki on your desktop
+    - Delete the .db file in the media folder (e.g. collection.media.db)
+    - Open Anki on your desktop
+    - Now it should work after syncing.
+
 """
 
 
