@@ -58,18 +58,20 @@ from bs4 import BeautifulSoup
 from tkinter import filedialog, Tk
 #from datetime import datetime
 import urllib.parse
-#import hashlib
+import hashlib
 import re
 import json
 import uuid
 from collections import defaultdict
 
-deck_name = "Semester 1: Data Science Master"
+deck_name = "Test vector"
+#deck_name = "Semester 1: Data Science Master"
 
 # UUID
 # Data_Science: "cf724d70-6d64-4414-9e08-d0e424fc4567"
 # Semester 1: "cf724d70-6d64-4414-9e08-d0e424fc4568"
-MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc4568"     # Manual UUID definition
+MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc9999"     # Test vector!
+# = "cf724d70-6d64-4414-9e08-d0e424fc4568"     # Manual UUID definition
 
 #MAIN_DECK_UUID = str(uuid.uuid4())      # Randomly generated UUID for the main deck
 
@@ -118,6 +120,7 @@ def clean_html_content(soup_fragment):
         tag.attrs = {k: v for k, v in tag.attrs.items() if k == 'src'}
     return soup_fragment.decode_contents().strip()
 
+
 def merge_consecutive_ol(soup):
     """Merge consecutive <ol> tags into a single <ol> with multiple <li> children."""
     for ol in soup.find_all("ol"):
@@ -131,253 +134,9 @@ def merge_consecutive_ol(soup):
             to_extract.extract()  # remove the now-empty sibling
     return soup
 
-"""
-def extract_cards_from_html(html_path, media_src_folder, media_output_folder, csv_output_path, json_output_path):
-    with open(html_path, 'r', encoding='utf-8') as f:
-        soup = BeautifulSoup(f, 'html.parser')
-
-    #date_str = datetime.now().strftime("%Y-%m-%d")
-    #folder_name = os.path.basename(os.path.dirname(html_path)).replace(" ", "_")
-
-    cards = []
-    media_files = []
-    current_deck = f"{deck_name}::Default"
-
-    details_blocks = soup.find_all('details')
-    print(f"Found {len(details_blocks)} toggle blocks.")
-
-    for details in details_blocks:
-
-        summary = details.find('summary')
-        if not summary:
-            continue
-
-        raw_question = summary.get_text(strip=True)
-
-        header_stack = [deck_name]  # start with root deck
-
-        if raw_question.startswith("H:"):
-            header_name = raw_question[2:].strip()
-            header_stack = header_stack[:len(header_stack)]  # truncate if needed
-            header_stack.append(header_name)
-            current_deck = "::".join(header_stack)
-            continue
-
-        #if raw_question.startswith("H:"):
-        #    current_deck = f"{deck_name}::{raw_question[2:].strip()}"#f"{deck_name}::{raw_question[2:].strip()}"
-        #    #raw_question.extract()  # Remove from HTML so it doesn't show in answer
-        #    continue
-        if not raw_question.startswith("Q:"):
-            continue  # Skip if it doesn't start with "Q:"
-        question = raw_question[2:].strip()  # Remove the "Q:"
-        summary.extract()  # remove <summary> so the rest is just the answer
-
-        # Clean and prepare answer HTML
-        #answer_soup = BeautifulSoup(str(details), 'html.parser')
-        #answer_html = clean_html_content(answer_soup)
-        # Extract inner HTML content from <details> without wrapping in <details>
-        inner_html = ''.join(str(tag) for tag in details.contents)
-        slug = slugify(question)
-
-        # Split at "Q:" and "A:" inside the full HTML
-        q_start = inner_html.find("Q:")
-        a_start = inner_html.find("A:")
-
-        if q_start != -1 and a_start != -1 and a_start > q_start:
-            front_raw = inner_html[(q_start + 2):a_start].strip()   # +2 because Q: is 2 characters long
-            back_raw = inner_html[(a_start + 2):].strip()
-        else:
-            # Fallback if not both Q:/A: found
-            front_raw = ""
-            back_raw = inner_html.strip()
-
-        # Parse front and back into separate soups
-        front_soup = BeautifulSoup(front_raw, 'html.parser')
-        back_soup = BeautifulSoup(back_raw, 'html.parser')
-        #inner_soup = BeautifulSoup(inner_html, 'html.parser')
-
-        # Handle images
-        #for img in inner_soup.find_all('img'):     # Use this if image names by date
-        img_counter = 1
-        for soup in [front_soup, back_soup]:
-            for idx, img in enumerate(soup.find_all('img'), start=1):
-                src = img.get('src')
-                if not src:
-                    continue
-                #ext = os.path.splitext(src)[-1]  # Get extension   # Use this if image names by date
-                #new_name = f"img_{folder_name}_{date_str}_{img_counter:03}{ext}" # Use this if image names by date
-                decoded_src = urllib.parse.unquote(os.path.basename(src))
-                ext = os.path.splitext(decoded_src)[1]  # e.g. ".png"
-                new_name = f"img_{slug}_{img_counter}{ext}"
-                src_path = os.path.join(media_src_folder, decoded_src)
-                dest_path = os.path.join(media_output_folder, new_name)
-                if os.path.exists(src_path):
-                    shutil.copy2(src_path, dest_path)
-                    print(f"Copied image: {new_name}")
-                    img['src'] = new_name   # Update src to just the file name (Anki expects this)
-                    img_counter += 1
-                    if new_name not in media_files:
-                        media_files.append(new_name)
-                else:
-                    print(f"Missing image file: {decoded_src}")
-
-        front_html = f"<strong>{question}</strong><br>" + clean_html_content(front_soup)
-        back_soup = merge_consecutive_ol(back_soup)
-        back_html = clean_html_content(back_soup)
-        cards.append((front_html, back_html, current_deck))
-        #cards.append((front_html, back_html))
-        #answer_html = clean_html_content(inner_soup)
-        #cards.append((question, answer_html))
-
-    # Write CSV
-    with open(csv_output_path, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['Front', 'Back', 'Deck'])
-        for front, back, deck in cards:
-            writer.writerow([front, back, deck])
-
-    print(f"Saved {len(cards)} cards to {csv_output_path}")
-    print(f"Images saved to {media_output_folder}")
-
-
-    # Write Json file
-    note_model_uuid = str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "note_model_basic_plus"))
-    deck_config_uuid = str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "deck_config"))
-
-    crowdanki_export = {
-        "crowdanki_uuid": MAIN_DECK_UUID,
-        "name": deck_name,
-        "deck_config_uuid": deck_config_uuid,
-        "deck_configurations": [
-            {
-                "crowdanki_uuid": deck_config_uuid,
-                "name": "Default",
-                "autoplay": True,
-                "dyn": False,
-                "lapse": {
-                    "delays": [10],
-                    "leechAction": 0,
-                    "leechFails": 8,
-                    "minInt": 1,
-                    "mult": 0
-                },
-                "maxTaken": 60,
-                "new": {
-                    "bury": True,
-                    "delays": [1, 10],
-                    "initialFactor": 2500,
-                    "ints": [1, 4, 7],
-                    "order": 1,
-                    "perDay": 20,
-                    "separate": True
-                },
-                "replayq": True,
-                "rev": {
-                    "bury": True,
-                    "ease4": 1.3,
-                    "fuzz": 0.05,
-                    "ivlFct": 1,
-                    "maxIvl": 36500,
-                    "minSpace": 1,
-                    "perDay": 200
-                },
-                "timer": 0,
-                "mod": 0,  # Unix timestamp (you can leave it as 0 or import `time` and use `int(time.time())`)
-            }
-        ],
-        "media_files": media_files,
-        "notes": [],
-        "children": [],
-        "note_models": [
-            {
-                "__type__": "NoteModel",
-                "crowdanki_uuid": note_model_uuid,
-                "name": "Basic+",
-                "type": 0,
-                "mod": 0,
-                "sortf": 0,
-                "latexPre": "\\documentclass[12pt]{article}\n\\special{papersize=3in,5in}\n\\usepackage[utf8]{inputenc}\n\\usepackage{amssymb,amsmath}\n\\pagestyle{empty}\n\\setlength{\\parindent}{0in}\n\\begin{document}\n",
-                "latexPost": "\\end{document}",
-                "css": ".card {\n font-family: arial;\n font-size: 20px;\n text-align: center;\n color: black;\n background-color: white;\n}\n",
-                "flds": [
-                    {
-                        "name": "Front",
-                        "ord": 0,
-                        "font": "Arial",
-                        "size": 20,
-                        "rtl": False,
-                        "sticky": False,
-                        "media": [],
-                        "description": "",
-                        "collapsed": False,
-                        "excludeFromSearch": False,
-                        "plainText": False,
-                        "preventDeletion": False,
-                        "tag": None,
-                        "id": None
-                    },
-                    {
-                        "name": "Back",
-                        "ord": 1,
-                        "font": "Arial",
-                        "size": 20,
-                        "rtl": False,
-                        "sticky": False,
-                        "media": [],
-                        "description": "",
-                        "collapsed": False,
-                        "excludeFromSearch": False,
-                        "plainText": False,
-                        "preventDeletion": False,
-                        "tag": None,
-                        "id": None
-                    }
-                ],
-                "tmpls": [
-                    {
-                        "name": "Card 1",
-                        "ord": 0,
-                        "qfmt": "{{Front}}",
-                        "afmt": "{{FrontSide}}<hr id=answer>{{Back}}",
-                        "bqfmt": "",
-                        "bafmt": "",
-                        "did": None,
-                        "sticky": False,
-                        "id": None
-                    }
-                ],
-                "req": [
-                    [0, "any", [0]]
-                ],
-                "tags": [],
-                "vers": [],
-                "latexsvg": False
-            }
-        ]
-    }
-
-    notes_by_deck = defaultdict(list)
-    for front, back, deck in cards:
-        note = {
-            "note_model_uuid": note_model_uuid,
-            "fields": [front, back],
-            "tags": []
-        }
-        notes_by_deck[deck].append(note)
-
-    all_deck_names = set(deck for _, _, deck in cards)  # Collect all unique deck names from cards:
-    decks_hierarchy = build_decks_hierarchy(all_deck_names, deck_config_uuid, notes_by_deck)
-    print(json.dumps(decks_hierarchy, indent=2))
-    crowdanki_export["children"] = decks_hierarchy["children"]
-    #crowdanki_export.pop("children", None)  # remove the empty key
-
-    with open(json_output_path, 'w', encoding='utf-8') as f:
-        json.dump(crowdanki_export, f, indent=2, ensure_ascii=False)
-
-    print(f"Exported single CrowdAnki JSON: {json_output_path}")
-"""
 
 def extract_cards_from_html(html_path, media_src_folder, media_output_folder, csv_output_path, json_output_path):
+
     with open(html_path, 'r', encoding='utf-8') as f:
         soup = BeautifulSoup(f, 'html.parser')
 
@@ -535,9 +294,12 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
     print(f"Saved {len(cards)} cards to {csv_output_path}")
     print(f"Images saved to {media_output_folder}")
 
+    def note_uuid(note_id: str) -> str:
+        return str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), note_id))
+
     # --- CrowdAnki JSON creation (unchanged, but now with corrected deck names) ---
-    note_model_uuid = str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "note_model_basic_plus"))
-    deck_config_uuid = str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "deck_config"))
+    note_model_uuid = note_uuid("note_model_basic_plus") #str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "note_model_basic_plus"))
+    deck_config_uuid = note_uuid("deck_config") #str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "deck_config"))
 
     # (same crowdanki_export dict construction as before...)
     # ... (I omit unchanged JSON-building code for brevity in this snippet)
@@ -545,6 +307,9 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
     notes_by_deck = defaultdict(list)
     for front, back, deck in cards:
         note = {
+            # Future ID: With Notion API, one could use the Notion ID of the block, which is even better. For my purposes, it is fine like this, for now.
+            "guid": note_uuid(front),   # GUID important so that new import cards are not duplicated.
+            "crowdanki_uuid": note_uuid(front),  # Crowdanki_UUID important so that at new import cards not duplicated.
             "note_model_uuid": note_model_uuid,
             "fields": [front, back],
             "tags": []
@@ -672,10 +437,26 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
     print(f"Exported single CrowdAnki JSON: {json_output_path}")
 
 
+def slugify(text, max_len=50, hash_len=12):
+
+    s = text.lower()
+    s = re.sub(r'[^a-z0-9]+', '_', s).strip('_')
+
+    # create a stable hash from the full text
+    h = hashlib.sha256(text.encode('utf-8')).hexdigest()[:hash_len]
+
+    # leave room for "_" + hash
+    base_len = max_len - hash_len - 1
+    s = s[:base_len]
+
+    return f"{s}_{h}"
+
+"""
 def slugify(text):
     s = text.lower()
     s = re.sub(r'[^a-z0-9]+', '_', s)
     return s.strip('_')[:50]
+"""
 
 def main():
     # File dialog to choose folder
