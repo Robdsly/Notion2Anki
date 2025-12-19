@@ -56,23 +56,20 @@ import shutil
 import csv
 from bs4 import BeautifulSoup
 from tkinter import filedialog, Tk
-#from datetime import datetime
 import urllib.parse
 import hashlib
 import re
 import json
 import uuid
-from collections import defaultdict
+from collections import defaultdict, Counter
 
-deck_name = "Test vector"
-#deck_name = "Semester 1: Data Science Master"
+#deck_name = "Test vector"
+deck_name = "Semester 1: Data Science Master"
 
 # UUID
 # Data_Science: "cf724d70-6d64-4414-9e08-d0e424fc4567"
 # Semester 1: "cf724d70-6d64-4414-9e08-d0e424fc4568"
 MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc9999"     # Test vector!
-# = "cf724d70-6d64-4414-9e08-d0e424fc4568"     # Manual UUID definition
-
 #MAIN_DECK_UUID = str(uuid.uuid4())      # Randomly generated UUID for the main deck
 
 def build_decks_hierarchy(deck_names, deck_config_uuid, notes_by_deck, root_name=deck_name):
@@ -226,7 +223,6 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
 
         # Extract inner HTML content from <details>
         inner_html = ''.join(str(tag) for tag in details.contents)
-        slug = slugify(question)
 
         # Split at "Q:" and "A:" inside the full HTML if present
         q_start = inner_html.find("Q:")
@@ -239,6 +235,8 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
             # Fallback: everything is the back (answer)
             front_raw = ""
             back_raw = inner_html.strip()
+
+        slug = slugify(front_raw+back_raw, max_len=33, hash_len=32) # 32 bit is overkill, but it won't hurt either.
 
         front_soup = BeautifulSoup(front_raw, 'html.parser')
         back_soup = BeautifulSoup(back_raw, 'html.parser')
@@ -297,19 +295,29 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
     def note_uuid(note_id: str) -> str:
         return str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), note_id))
 
-    # --- CrowdAnki JSON creation (unchanged, but now with corrected deck names) ---
+    # Important UUIDs
     note_model_uuid = note_uuid("note_model_basic_plus") #str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "note_model_basic_plus"))
     deck_config_uuid = note_uuid("deck_config") #str(uuid.uuid5(uuid.UUID(MAIN_DECK_UUID), "deck_config"))
 
-    # (same crowdanki_export dict construction as before...)
-    # ... (I omit unchanged JSON-building code for brevity in this snippet)
-    # Recreate notes_by_deck using the new cards list:
+    # Create the cards
     notes_by_deck = defaultdict(list)
+    seen = defaultdict(int)
+
     for front, back, deck in cards:
+
+        identity_key = front# + "\n---\n" + back
+        guid = note_uuid(identity_key)
+
+        seen[identity_key] += 1
+        occurrence = seen[identity_key]
+
+        if occurrence > 1:
+            print(f"Warning: Duplicate: {front}. The card was not duplicated.")
+
         note = {
             # Future ID: With Notion API, one could use the Notion ID of the block, which is even better. For my purposes, it is fine like this, for now.
-            "guid": note_uuid(front),   # GUID important so that new import cards are not duplicated.
-            "crowdanki_uuid": note_uuid(front),  # Crowdanki_UUID important so that at new import cards not duplicated.
+            "guid": guid,   # GUID important so that new import cards are not duplicated.
+            "crowdanki_uuid": guid,  # Crowdanki_UUID important so that at new import cards not duplicated.
             "note_model_uuid": note_model_uuid,
             "fields": [front, back],
             "tags": []
@@ -451,12 +459,6 @@ def slugify(text, max_len=50, hash_len=12):
 
     return f"{s}_{h}"
 
-"""
-def slugify(text):
-    s = text.lower()
-    s = re.sub(r'[^a-z0-9]+', '_', s)
-    return s.strip('_')[:50]
-"""
 
 def main():
     # File dialog to choose folder
