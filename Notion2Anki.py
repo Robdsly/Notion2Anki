@@ -50,6 +50,8 @@ Troubleshooting:
 
 """
 
+# Todo: Enable new lines in question (shift + Enter).
+
 
 import os
 import shutil
@@ -69,7 +71,8 @@ deck_name = "Semester 1: Data Science Master"
 # UUID
 # Data_Science: "cf724d70-6d64-4414-9e08-d0e424fc4567"
 # Semester 1: "cf724d70-6d64-4414-9e08-d0e424fc4568"
-MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc9999"     # Test vector!
+MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc9999"     # Semester 1
+# MAIN_DECK_UUID = "cf724d70-6d64-4414-9e08-d0e424fc4568"     # Old Semester 1
 #MAIN_DECK_UUID = str(uuid.uuid4())      # Randomly generated UUID for the main deck
 
 def build_decks_hierarchy(deck_names, deck_config_uuid, notes_by_deck, root_name=deck_name):
@@ -219,7 +222,7 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
         question = raw_summary[2:].strip()  # remove "Q:"
 
         # Remove the <summary> node so the rest is the answer content
-        summary.extract()
+        summary.extract()   # Todo: Unnecessary code?!
 
         # Extract inner HTML content from <details>
         inner_html = ''.join(str(tag) for tag in details.contents)
@@ -236,7 +239,31 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
             front_raw = ""
             back_raw = inner_html.strip()
 
-        slug = slugify(front_raw+back_raw, max_len=33, hash_len=32) # 32 bit is overkill, but it won't hurt either.
+
+        def normalize_html_for_identity(html: str) -> str:
+            soup = BeautifulSoup(html, "html.parser")
+
+            for img in soup.find_all("img"):
+                # Replace each image with a stable placeholder
+                img.replace_with("[[IMAGE]]")
+
+            # Optional: normalize whitespace
+            text = soup.get_text(separator=" ", strip=True)
+            text = re.sub(r"\s+", " ", text)
+
+            return text
+
+        identity_front = normalize_html_for_identity(front_raw)
+        identity_back = normalize_html_for_identity(back_raw)
+
+        identity_text = question + identity_front + "\n---\n" + identity_back
+        # question is not inside identity_front. front_raw only contains what
+        # is inside the dropdown between "Q:" and "A:"
+
+        slug = slugify(identity_text, max_len=33, hash_len=32)
+
+        #slug = slugify(front_raw+back_raw, max_len=33, hash_len=32) # 32 bit
+        # is overkill, but it won't hurt either.
 
         front_soup = BeautifulSoup(front_raw, 'html.parser')
         back_soup = BeautifulSoup(back_raw, 'html.parser')
@@ -280,13 +307,13 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
                 # 3) fallback
                 deck_full = f"{default_deck_path}::Default"
 
-        cards.append((front_html, back_html, deck_full))
+        cards.append((front_html, back_html, deck_full, identity_text))
 
     # Write CSV
     with open(csv_output_path, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['Front', 'Back', 'Deck'])
-        for front, back, deck in cards:
+        for front, back, deck, _ in cards:
             writer.writerow([front, back, deck])
 
     print(f"Saved {len(cards)} cards to {csv_output_path}")
@@ -303,13 +330,13 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
     notes_by_deck = defaultdict(list)
     seen = defaultdict(int)
 
-    for front, back, deck in cards:
+    for front, back, deck, identity_text in cards:
 
-        identity_key = front# + "\n---\n" + back
-        guid = note_uuid(identity_key)
+        #identity_key = front# + "\n---\n" + back
+        guid = note_uuid(identity_text)
 
-        seen[identity_key] += 1
-        occurrence = seen[identity_key]
+        seen[identity_text] += 1
+        occurrence = seen[identity_text]
 
         if occurrence > 1:
             print(f"Warning: Duplicate: {front}. The card was not duplicated.")
@@ -324,7 +351,7 @@ def extract_cards_from_html(html_path, media_src_folder, media_output_folder, cs
         }
         notes_by_deck[deck].append(note)
 
-    all_deck_names = set(deck for _, _, deck in cards)
+    all_deck_names = set(deck for _, _, deck, _ in cards)
     decks_hierarchy = build_decks_hierarchy(all_deck_names, deck_config_uuid, notes_by_deck)
 
     crowdanki_export = {
